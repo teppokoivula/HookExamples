@@ -1,0 +1,124 @@
+<?php
+
+/**
+ * Hook examples
+ *
+ * This module contains examples of hook usage in ProcessWire CMF/CMS. Related
+ * to this blog post explaining how hooks and hooking work in ProcessWire:
+ * http://www.flamingruby.com/blog/using-hooks-to-alter-default-behavior-of-processwire/
+ *
+ * @copyright Copyright (c) 2013, Teppo Koivula
+ *
+ * ProcessWire 2.x 
+ * Copyright (C) 2013 by Ryan Cramer 
+ * Licensed under GNU/GPL v2, see LICENSE.TXT
+ * 
+ * http://processwire.com
+ *
+ */
+ 
+class HookExamples extends WireData implements Module {
+    
+    /**
+     * Return information about this module (required)
+     *
+     * @return array
+     */
+    public static function getModuleInfo() {
+        return array(
+            'title' => 'Hook examples',
+            'summary' => 'Examples of hook usage in ProcessWire',
+            'author' => 'Teppo Koivula',
+            'version' => 100,
+            'singular' => true,
+            'autoload' => true,
+        ); 
+    }
+
+    /**
+     * Initialization function. This is where we'll attach our hooks.
+     *
+     */
+    public function init() {
+
+        // add property "ageStr" to all pages
+        wire()->addHookProperty("Page::ageStr", $this, "pageAgeStr");
+
+        // minify page markup automatically
+        wire()->addHookAfter("Page::render", $this, "minifyHTML");
+
+    }
+
+    /**
+     * Age of current page in string format ("5 days ago" etc.) Function
+     * wireRelativeTimeStr() comes from /wire/core/Functions.php.
+     * 
+     * @param HookEvent $event
+     */
+    public function pageAgeStr(HookEvent $event) {
+        $page = $event->object;
+        $event->return = wireRelativeTimeStr($page->created);
+    }
+
+    /**
+     * Minify HTML markup
+     *
+     * Concept itself is very simple, ie. getting event return value from
+     * $event->return, modifying it and replacing original value with new
+     * one. Here I've brought in some more advanced stuff mainly to prove
+     * that hooks can be used for quite a few interesting things.
+    *
+     * @param HookEvent $event
+     */
+    public function minifyHTML(HookEvent $event) {
+
+        // event return value contains rendered markup
+        $markup = $event->return;
+
+        // we don't want to attempt minifying markup unless it's actually HTML
+        if (strpos($markup, "<html") === false) return;
+
+        // Set PCRE recursion limit to sane value = STACKSIZE / 500
+        if (php_uname('s') == "Windows") {
+            ini_set("pcre.recursion_limit", "524"); // 256KB stack. Win32 Apache
+        } else {
+            ini_set("pcre.recursion_limit", "16777");  // 8MB stack. *nix
+        }
+
+        // minify markup with some regexp magic. Source for this solution and
+        // those ini_set rows above was this excellent StackOverflow answer:
+        // http://stackoverflow.com/questions/5312349/#answer-5324014
+        $minified_markup = preg_replace(
+            '%             # Collapse whitespace everywhere but in blacklisted elements.
+            (?>            # Match all whitespans other than single space.
+              [^\S ]\s*    # Either one [\t\r\n\f\v] and zero or more ws,
+              | \s{2,}     # or two or more consecutive-any-whitespace.
+            )              # Note: The remaining regex consumes no text at all...
+            (?=            # Ensure we are not in a blacklist tag.
+              [^<]*+       # Either zero or more non-"<" {normal*}
+              (?:          # Begin {(special normal*)*} construct
+                <          # or a < starting a non-blacklist tag.
+                (?!/?(?:textarea|pre|script)\b)
+              [^<]*+       # more non-"<" {normal*}
+            )*+            # Finish "unrolling-the-loop"
+            (?:            # Begin alternation group.
+              <            # Either a blacklist start tag.
+              (?>textarea|pre|script)\b
+                | \z       # or end of file.
+              )            # End alternation group.
+            )              # If we made it here, we are not in a blacklist tag.
+            %Six',
+            ' ', 
+            $markup
+        );
+
+        // add a comment containing decrease percentage (just for fun, really)
+        $decrease = round((1-mb_strlen($minified_markup)/mb_strlen($markup))*100, 2);
+        $comment = "<!-- minified by " . __CLASS__ . " ({$decrease}%) -->";
+        $return = str_replace("<head>", "<head>{$comment}", $minified_markup);
+
+        $event->return = $return;
+
+    }
+
+}
