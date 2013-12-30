@@ -16,7 +16,6 @@
  * http://processwire.com
  *
  */
- 
 class HookExamples extends WireData implements Module {
     
     /**
